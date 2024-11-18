@@ -49,6 +49,7 @@ __all__ = (
     "Attention",
     "PSA",
     "SCDown",
+    "CoordinateAttention", # Added module
 )
 
 
@@ -1107,3 +1108,81 @@ class SCDown(nn.Module):
     def forward(self, x):
         """Applies convolution and downsampling to the input tensor in the SCDown module."""
         return self.cv2(self.cv1(x))
+
+
+class CoordinateAttention(nn.Module):
+    """
+    Coordinate Attention module for channel and spatial attention. 
+    Followed the approach here:
+    https://openaccess.thecvf.com/content/CVPR2021/papers/Hou_Coordinate_Attention_for_Efficient_Mobile_Network_Design_CVPR_2021_paper.pdf
+
+    This module applies Coordinate Attention, which involves:
+    1. X and Y Average Pooling.
+    2. Concatenating pooled features along the width.
+    3. Reducing channel dimensions via a 1x1 convolution.
+    4. Generating separate attention maps for width and height.
+    5. Re-weighting the input feature map and adding a residual connection.
+
+    Args:
+        c1 (int): Number of input channels.
+        r (int): Reduction ratio to control intermediate channel size.
+    """
+
+    def __init__(self, c1, r):
+        """
+        Initialize the Coordinate Attention module.
+
+        Args:
+            c1 (int): Number of input channels.
+            r (int): Reduction ratio to control intermediate channel size.
+        """
+        super().__init__()
+        # Calculate intermediate channel size
+        self.intermediate_channel = max(8, c1 // r)
+
+        # Concatenation + Conv2d: Reduce channel dimensions
+        self.cv1 = Conv(c1 * 2, self.intermediate_channel, k=1, s=1)
+
+        # Conv2d for generating width and height attention maps
+        self.conv_w = Conv(self.intermediate_channel, c1, k=1, s=1, act='sigmoid')  # Width attention
+        self.conv_h = Conv(self.intermediate_channel, c1, k=1, s=1, act='sigmoid')  # Height attention
+
+    def forward(self, x):
+        """
+        Forward pass for Coordinate Attention.
+
+        Args:
+            x (torch.Tensor): Input tensor with shape (B, C, H, W).
+
+        Returns:
+            torch.Tensor: Output tensor with re-weighted features and residual connection.
+        """
+        # Save the residual input tensor
+        residual = x
+
+        # X Average Pooling: Compute the mean along the height dimension
+        x_mean = torch.mean(x, dim=2, keepdim=True)  # Shape: (B, C, 1, W)
+
+        # Y Average Pooling: Compute the mean along the width dimension and permute
+        y_mean = torch.mean(x, dim=3, keepdim=True).permute(0, 1, 3, 2)  # Shape: (B, C, 1, H)
+
+        # Concatenate X-pool and Y-pool results along the width dimension
+        pooled = torch.cat([x_mean, y_mean], dim=3)  # Shape: (B, C, 1, (W + H))
+
+        # Reduce channels via Conv2d (includes BatchNorm + Activation inside Conv)
+        pooled = self.cv1(pooled)  # Shape: (B, C/r, 1, (W + H))
+
+        # Generate width attention map
+        w_attention = self.conv_w(pooled)  # Shape: (B, C, 1, W)
+
+        # Generate height attention map (requires permuting back)
+        h_attention = self.conv_h(pooled).permute(0, 1, 3, 2)  # Shape: (B, C, H, 1)
+
+        # Re-weight the input tensor with attention maps
+        re_weighted = x * w_attention * h_attention
+
+        # Add the residual connection
+        output = re_weighted + residual
+
+        return output
+
