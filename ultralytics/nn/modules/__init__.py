@@ -56,6 +56,7 @@ from .block import (
     RepVGGDW,
     ResNetLayer,
     SCDown,
+    CoordinateAttention,
 )
 from .conv import (
     CBAM,
