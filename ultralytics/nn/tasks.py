@@ -1002,6 +1002,15 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C2fCIB,
             CoordinateAttention, # Added CA here
         }:
+            if m is CoordinateAttention:
+                c1, r = args[0], args[1]  # Extract c1 and r from args
+                args = [c1, r]            # Ensure only these are passed to the module
+            else:
+                c1, c2 = ch[f], args[0]
+                if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                    c2 = make_divisible(min(c2, max_channels) * width, 8)
+                args = [c1, c2, *args[1:]]
+
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
