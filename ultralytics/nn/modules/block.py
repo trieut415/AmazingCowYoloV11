@@ -1137,6 +1137,8 @@ class CoordinateAttention(nn.Module):
             r (int): Reduction ratio to control intermediate channel size.
         """
         super().__init__()
+        print(f"CoordinateAttention initialized with c1={c1}, r={r}")  # Debug statement
+
         # Calculate intermediate channel size
         self.intermediate_channel = max(8, c1 // r)
 
